@@ -21,8 +21,13 @@ function initTables() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
       amount REAL NOT NULL,
+      original_amount REAL,
+      original_currency TEXT,
       description TEXT,
       category TEXT DEFAULT 'Other',
+      tags TEXT DEFAULT '',
+      photo_id TEXT,
+      is_split INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT (datetime('now', 'localtime')),
       date TEXT DEFAULT (date('now', 'localtime'))
     );
@@ -42,11 +47,42 @@ function initTables() {
       created_at DATETIME DEFAULT (datetime('now', 'localtime'))
     );
 
-    CREATE INDEX IF NOT EXISTS idx_pairs_invite_code
-      ON pairs(invite_code);
+    CREATE INDEX IF NOT EXISTS idx_pairs_invite_code ON pairs(invite_code);
+    CREATE INDEX IF NOT EXISTS idx_pairs_user_id ON pairs(user_id);
 
-    CREATE INDEX IF NOT EXISTS idx_pairs_user_id
-      ON pairs(user_id);
+    CREATE TABLE IF NOT EXISTS budgets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      month TEXT NOT NULL,
+      created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+      UNIQUE(user_id, month)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_budgets_user_month ON budgets(user_id, month);
+
+    CREATE TABLE IF NOT EXISTS reminders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL UNIQUE,
+      chat_id INTEGER NOT NULL,
+      reminder_time TEXT NOT NULL DEFAULT '21:00',
+      enabled INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT (datetime('now', 'localtime'))
+    );
+
+    CREATE TABLE IF NOT EXISTS recurring (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      description TEXT,
+      category TEXT DEFAULT 'Other',
+      day_of_month INTEGER NOT NULL,
+      enabled INTEGER DEFAULT 1,
+      last_run TEXT,
+      created_at DATETIME DEFAULT (datetime('now', 'localtime'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_recurring_user ON recurring(user_id);
   `);
 }
 
@@ -78,17 +114,9 @@ function linkWithCode(userId, userName, code) {
   }
 
   const inviter = getDb().prepare('SELECT * FROM pairs WHERE invite_code = ?').get(code);
-  if (!inviter) {
-    return { error: 'invalid_code' };
-  }
-
-  if (inviter.user_id === userId) {
-    return { error: 'self_link' };
-  }
-
-  if (inviter.partner_id) {
-    return { error: 'code_used' };
-  }
+  if (!inviter) return { error: 'invalid_code' };
+  if (inviter.user_id === userId) return { error: 'self_link' };
+  if (inviter.partner_id) return { error: 'code_used' };
 
   const linkTransaction = getDb().transaction(() => {
     getDb().prepare('UPDATE pairs SET partner_id = ?, invite_code = NULL WHERE user_id = ?')
@@ -109,9 +137,7 @@ function linkWithCode(userId, userName, code) {
 
 function unlinkPair(userId) {
   const pair = getDb().prepare('SELECT * FROM pairs WHERE user_id = ?').get(userId);
-  if (!pair || !pair.partner_id) {
-    return { error: 'not_linked' };
-  }
+  if (!pair || !pair.partner_id) return { error: 'not_linked' };
 
   const partnerId = pair.partner_id;
   const partnerName = getPartnerName(userId);
@@ -145,9 +171,7 @@ function getUserName(userId) {
 
 function getGroupUserIds(userId) {
   const pair = getDb().prepare('SELECT partner_id FROM pairs WHERE user_id = ?').get(userId);
-  if (pair && pair.partner_id) {
-    return [userId, pair.partner_id];
-  }
+  if (pair && pair.partner_id) return [userId, pair.partner_id];
   return [userId];
 }
 
@@ -155,13 +179,31 @@ function inPlaceholders(ids) {
   return ids.map(() => '?').join(',');
 }
 
-function addExpense(userId, amount, description, category = 'Other') {
+function addExpense(userId, amount, description, category = 'Other', options = {}) {
   const stmt = getDb().prepare(`
-    INSERT INTO expenses (user_id, amount, description, category)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO expenses (user_id, amount, original_amount, original_currency, description, category, tags, photo_id, is_split, date)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  const result = stmt.run(userId, amount, description, category);
+  const date = options.date || new Date().toISOString().split('T')[0];
+  const result = stmt.run(
+    userId, amount,
+    options.originalAmount || null,
+    options.originalCurrency || null,
+    description, category,
+    options.tags || '',
+    options.photoId || null,
+    options.isSplit ? 1 : 0,
+    date
+  );
   return result.lastInsertRowid;
+}
+
+function setExpensePhoto(expenseId, photoId) {
+  getDb().prepare('UPDATE expenses SET photo_id = ? WHERE id = ?').run(photoId, expenseId);
+}
+
+function getExpenseById(expenseId) {
+  return getDb().prepare('SELECT * FROM expenses WHERE id = ?').get(expenseId);
 }
 
 function deleteExpense(userId, expenseId) {
@@ -176,7 +218,7 @@ function deleteExpense(userId, expenseId) {
 function getTodayExpenses(userId) {
   const userIds = getGroupUserIds(userId);
   const stmt = getDb().prepare(`
-    SELECT id, user_id, amount, description, category, created_at
+    SELECT id, user_id, amount, description, category, tags, is_split, photo_id, created_at
     FROM expenses
     WHERE user_id IN (${inPlaceholders(userIds)}) AND date = date('now', 'localtime')
     ORDER BY created_at DESC
@@ -197,7 +239,7 @@ function getTodayTotal(userId) {
 function getWeekExpenses(userId) {
   const userIds = getGroupUserIds(userId);
   const stmt = getDb().prepare(`
-    SELECT id, user_id, amount, description, category, date, created_at
+    SELECT id, user_id, amount, description, category, tags, is_split, date, created_at
     FROM expenses
     WHERE user_id IN (${inPlaceholders(userIds)}) 
       AND date >= date('now', 'localtime', 'weekday 1', '-7 days')
@@ -222,7 +264,7 @@ function getWeekTotal(userId) {
 function getMonthExpenses(userId) {
   const userIds = getGroupUserIds(userId);
   const stmt = getDb().prepare(`
-    SELECT id, user_id, amount, description, category, date, created_at
+    SELECT id, user_id, amount, description, category, tags, is_split, date, created_at
     FROM expenses
     WHERE user_id IN (${inPlaceholders(userIds)}) 
       AND strftime('%Y-%m', date) = strftime('%Y-%m', date('now', 'localtime'))
@@ -245,9 +287,7 @@ function getMonthTotal(userId) {
 function getMonthCategoryStats(userId) {
   const userIds = getGroupUserIds(userId);
   const stmt = getDb().prepare(`
-    SELECT category, 
-           SUM(amount) as total, 
-           COUNT(*) as count
+    SELECT category, SUM(amount) as total, COUNT(*) as count
     FROM expenses
     WHERE user_id IN (${inPlaceholders(userIds)}) 
       AND strftime('%Y-%m', date) = strftime('%Y-%m', date('now', 'localtime'))
@@ -273,7 +313,7 @@ function getMonthDailyStats(userId) {
 function getRecentExpenses(userId, limit = 10) {
   const userIds = getGroupUserIds(userId);
   const stmt = getDb().prepare(`
-    SELECT id, user_id, amount, description, category, date, created_at
+    SELECT id, user_id, amount, description, category, tags, is_split, date, created_at
     FROM expenses
     WHERE user_id IN (${inPlaceholders(userIds)})
     ORDER BY created_at DESC
@@ -285,9 +325,7 @@ function getRecentExpenses(userId, limit = 10) {
 function getMonthlyOverview(userId) {
   const userIds = getGroupUserIds(userId);
   const stmt = getDb().prepare(`
-    SELECT strftime('%Y-%m', date) as month,
-           SUM(amount) as total,
-           COUNT(*) as count
+    SELECT strftime('%Y-%m', date) as month, SUM(amount) as total, COUNT(*) as count
     FROM expenses
     WHERE user_id IN (${inPlaceholders(userIds)})
       AND date >= date('now', 'localtime', '-12 months')
@@ -295,6 +333,153 @@ function getMonthlyOverview(userId) {
     ORDER BY month DESC
   `);
   return stmt.all(...userIds);
+}
+
+function getExpensesByTag(userId, tag) {
+  const userIds = getGroupUserIds(userId);
+  const stmt = getDb().prepare(`
+    SELECT id, user_id, amount, description, category, tags, is_split, date, created_at
+    FROM expenses
+    WHERE user_id IN (${inPlaceholders(userIds)}) AND tags LIKE ?
+    ORDER BY date DESC, created_at DESC
+    LIMIT 50
+  `);
+  return stmt.all(...userIds, `%${tag}%`);
+}
+
+function getExpensesByMonth(userId, yearMonth) {
+  const userIds = getGroupUserIds(userId);
+  const stmt = getDb().prepare(`
+    SELECT id, user_id, amount, description, category, tags, is_split, date, created_at
+    FROM expenses
+    WHERE user_id IN (${inPlaceholders(userIds)}) 
+      AND strftime('%Y-%m', date) = ?
+    ORDER BY date ASC, created_at ASC
+  `);
+  return stmt.all(...userIds, yearMonth);
+}
+
+function getPreviousMonthTotal(userId) {
+  const userIds = getGroupUserIds(userId);
+  const stmt = getDb().prepare(`
+    SELECT COALESCE(SUM(amount), 0) as total
+    FROM expenses
+    WHERE user_id IN (${inPlaceholders(userIds)}) 
+      AND strftime('%Y-%m', date) = strftime('%Y-%m', date('now', 'localtime', '-1 month'))
+  `);
+  return stmt.get(...userIds).total;
+}
+
+function getPreviousMonthCategoryStats(userId) {
+  const userIds = getGroupUserIds(userId);
+  const stmt = getDb().prepare(`
+    SELECT category, SUM(amount) as total, COUNT(*) as count
+    FROM expenses
+    WHERE user_id IN (${inPlaceholders(userIds)}) 
+      AND strftime('%Y-%m', date) = strftime('%Y-%m', date('now', 'localtime', '-1 month'))
+    GROUP BY category
+    ORDER BY total DESC
+  `);
+  return stmt.all(...userIds);
+}
+
+function getSplitSummary(userId) {
+  const userIds = getGroupUserIds(userId);
+  if (userIds.length < 2) return null;
+
+  const stmt = getDb().prepare(`
+    SELECT user_id, SUM(amount) as total
+    FROM expenses
+    WHERE user_id IN (${inPlaceholders(userIds)}) 
+      AND is_split = 1
+      AND strftime('%Y-%m', date) = strftime('%Y-%m', date('now', 'localtime'))
+    GROUP BY user_id
+  `);
+  return stmt.all(...userIds);
+}
+
+function setBudget(userId, amount) {
+  const month = new Date().toISOString().slice(0, 7);
+  const stmt = getDb().prepare(`
+    INSERT INTO budgets (user_id, amount, month) VALUES (?, ?, ?)
+    ON CONFLICT(user_id, month) DO UPDATE SET amount = ?
+  `);
+  stmt.run(userId, amount, month, amount);
+}
+
+function getBudget(userId) {
+  const month = new Date().toISOString().slice(0, 7);
+  const userIds = getGroupUserIds(userId);
+
+  const budgets = [];
+  for (const uid of userIds) {
+    const b = getDb().prepare('SELECT * FROM budgets WHERE user_id = ? AND month = ?').get(uid, month);
+    if (b) budgets.push(b);
+  }
+
+  if (budgets.length === 0) return null;
+
+  const totalBudget = budgets.reduce((sum, b) => sum + b.amount, 0);
+  return { amount: totalBudget, month };
+}
+
+function setReminder(userId, chatId, time, enabled = true) {
+  const stmt = getDb().prepare(`
+    INSERT INTO reminders (user_id, chat_id, reminder_time, enabled) VALUES (?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET chat_id = ?, reminder_time = ?, enabled = ?
+  `);
+  stmt.run(userId, chatId, time, enabled ? 1 : 0, chatId, time, enabled ? 1 : 0);
+}
+
+function getReminder(userId) {
+  return getDb().prepare('SELECT * FROM reminders WHERE user_id = ?').get(userId);
+}
+
+function getActiveReminders(time) {
+  return getDb().prepare('SELECT * FROM reminders WHERE reminder_time = ? AND enabled = 1').all(time);
+}
+
+function disableReminder(userId) {
+  getDb().prepare('UPDATE reminders SET enabled = 0 WHERE user_id = ?').run(userId);
+}
+
+function addRecurring(userId, amount, description, category, dayOfMonth) {
+  const stmt = getDb().prepare(`
+    INSERT INTO recurring (user_id, amount, description, category, day_of_month)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  return stmt.run(userId, amount, description, category, dayOfMonth).lastInsertRowid;
+}
+
+function getRecurringList(userId) {
+  return getDb().prepare('SELECT * FROM recurring WHERE user_id = ? AND enabled = 1').all(userId);
+}
+
+function deleteRecurring(userId, recurringId) {
+  const result = getDb().prepare('DELETE FROM recurring WHERE id = ? AND user_id = ?').run(recurringId, userId);
+  return result.changes > 0;
+}
+
+function getDueRecurring(today) {
+  const dayOfMonth = new Date(today).getDate();
+  const currentMonth = today.slice(0, 7);
+  return getDb().prepare(`
+    SELECT * FROM recurring 
+    WHERE day_of_month = ? AND enabled = 1 
+      AND (last_run IS NULL OR last_run != ?)
+  `).all(dayOfMonth, currentMonth);
+}
+
+function markRecurringRun(recurringId, month) {
+  getDb().prepare('UPDATE recurring SET last_run = ? WHERE id = ?').run(month, recurringId);
+}
+
+function hasTodayExpenses(userId) {
+  const stmt = getDb().prepare(`
+    SELECT COUNT(*) as count FROM expenses
+    WHERE user_id = ? AND date = date('now', 'localtime')
+  `);
+  return stmt.get(userId).count > 0;
 }
 
 function closeDb() {
@@ -305,24 +490,20 @@ function closeDb() {
 }
 
 module.exports = {
-  addExpense,
-  deleteExpense,
-  getTodayExpenses,
-  getTodayTotal,
-  getWeekExpenses,
-  getWeekTotal,
-  getMonthExpenses,
-  getMonthTotal,
-  getMonthCategoryStats,
-  getMonthDailyStats,
-  getRecentExpenses,
-  getMonthlyOverview,
-  createInviteCode,
-  linkWithCode,
-  unlinkPair,
-  getPartnerInfo,
-  getPartnerName,
-  getUserName,
-  getGroupUserIds,
+  addExpense, deleteExpense, setExpensePhoto, getExpenseById,
+  getTodayExpenses, getTodayTotal,
+  getWeekExpenses, getWeekTotal,
+  getMonthExpenses, getMonthTotal,
+  getMonthCategoryStats, getMonthDailyStats,
+  getRecentExpenses, getMonthlyOverview,
+  getExpensesByTag, getExpensesByMonth,
+  getPreviousMonthTotal, getPreviousMonthCategoryStats,
+  getSplitSummary,
+  createInviteCode, linkWithCode, unlinkPair,
+  getPartnerInfo, getPartnerName, getUserName, getGroupUserIds,
+  setBudget, getBudget,
+  setReminder, getReminder, getActiveReminders, disableReminder,
+  addRecurring, getRecurringList, deleteRecurring, getDueRecurring, markRecurringRun,
+  hasTodayExpenses,
   closeDb,
 };
