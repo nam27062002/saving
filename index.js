@@ -16,6 +16,15 @@ if (!TOKEN) {
 const bot = new TelegramBot(TOKEN, { polling: true });
 console.log('Bot started successfully!');
 
+bot.on('polling_error', (err) => {
+  console.error('Polling error:', err.message || err.code || err);
+  if (err.stack) console.error(err.stack);
+});
+
+bot.on('error', (err) => {
+  console.error('Bot error:', err.message || err);
+});
+
 scheduler.init(bot);
 
 const userStates = new Map();
@@ -76,14 +85,19 @@ function parseAmount(text) {
 function parseCurrency(text) {
   text = text.trim();
 
-  for (const [code, rate] of Object.entries(CURRENCY_RATES)) {
-    const symbols = { 'USD': '$', 'EUR': '€', 'GBP': '£', 'JPY': '¥', 'CNY': '¥', 'KRW': '₩', 'THB': '฿' };
-    const symbol = symbols[code];
+  const symbolMap = { 'USD': '$', 'EUR': '€', 'GBP': '£', 'JPY': '¥', 'CNY': '¥', 'KRW': '₩', 'THB': '฿' };
 
-    const patterns = [
-      new RegExp(`^\\${symbol || ''}([\\d.,]+)$`),
-      new RegExp(`^([\\d.,]+)\\s*${code}$`, 'i'),
-    ];
+  for (const [code, rate] of Object.entries(CURRENCY_RATES)) {
+    const symbol = symbolMap[code];
+
+    const patterns = [];
+
+    if (symbol) {
+      const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      patterns.push(new RegExp(`^${escaped}([\\d.,]+)$`));
+    }
+
+    patterns.push(new RegExp(`^([\\d.,]+)\\s*${code}$`, 'i'));
 
     for (const pattern of patterns) {
       const match = text.match(pattern);
