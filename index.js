@@ -247,7 +247,7 @@ function processExpenseInput(text, userId, userName, chatId, forcedCategory = nu
   return id;
 }
 
-bot.onText(/\/start/, (msg) => {
+bot.onText(/^\/start(@\w+)?$/, (msg) => {
   const name = msg.from.first_name || 'there';
   bot.sendMessage(msg.chat.id, `
 👋 Hi <b>${name}</b>! I'm your expense tracker bot 💰
@@ -280,7 +280,7 @@ Send: <code>50k coffee</code> to add an expense!
 `, { parse_mode: 'HTML' });
 });
 
-bot.onText(/\/help/, (msg) => {
+bot.onText(/^\/help(@\w+)?$/, (msg) => {
   bot.sendMessage(msg.chat.id, `
 📖 <b>Full Command Guide</b>
 
@@ -333,10 +333,10 @@ bot.onText(/\/help/, (msg) => {
 `, { parse_mode: 'HTML' });
 });
 
-bot.onText(/\/budget\s*(.*)/, (msg, match) => {
+bot.onText(/^\/budget(@\w+)?\s*(.*)/, (msg, match) => {
   const userId = msg.from.id;
   const chatId = msg.chat.id;
-  const input = (match[1] || '').trim();
+  const input = (match[2] || '').trim();
 
   if (!input) {
     const budget = db.getBudget(userId);
@@ -366,10 +366,10 @@ bot.onText(/\/budget\s*(.*)/, (msg, match) => {
     { parse_mode: 'HTML' });
 });
 
-bot.onText(/\/reminder\s*(.*)/, (msg, match) => {
+bot.onText(/^\/reminder(@\w+)?\s*(.*)/, (msg, match) => {
   const userId = msg.from.id;
   const chatId = msg.chat.id;
-  const input = (match[1] || '').trim().toLowerCase();
+  const input = (match[2] || '').trim().toLowerCase();
 
   if (!input) {
     const reminder = db.getReminder(userId);
@@ -410,10 +410,10 @@ bot.onText(/\/reminder\s*(.*)/, (msg, match) => {
   bot.sendMessage(chatId, `🔔 Daily reminder set to <b>${time}</b>!\n\nI'll remind you if you haven't logged any expenses by then.`, { parse_mode: 'HTML' });
 });
 
-bot.onText(/\/recurring\s*(.*)/, (msg, match) => {
+bot.onText(/^\/recurring(@\w+)?\s*(.*)/, (msg, match) => {
   const userId = msg.from.id;
   const chatId = msg.chat.id;
-  const input = (match[1] || '').trim();
+  const input = (match[2] || '').trim();
 
   if (!input || input === 'list') {
     const items = db.getRecurringList(userId);
@@ -472,10 +472,10 @@ bot.onText(/\/recurring\s*(.*)/, (msg, match) => {
     { parse_mode: 'HTML' });
 });
 
-bot.onText(/\/export\s*(.*)/, (msg, match) => {
+bot.onText(/^\/export(@\w+)?\s*(.*)/, (msg, match) => {
   const userId = msg.from.id;
   const chatId = msg.chat.id;
-  const monthInput = (match[1] || '').trim();
+  const monthInput = (match[2] || '').trim();
   const nameMap = getNameMap(userId, msg.from.first_name);
 
   const targetMonth = monthInput || new Date().toISOString().slice(0, 7);
@@ -504,7 +504,7 @@ bot.onText(/\/export\s*(.*)/, (msg, match) => {
   });
 });
 
-bot.onText(/\/insights/, (msg) => {
+bot.onText(/^\/insights(@\w+)?$/, (msg) => {
   const userId = msg.from.id;
   const currentStats = db.getMonthCategoryStats(userId);
   const prevStats = db.getPreviousMonthCategoryStats(userId);
@@ -514,10 +514,10 @@ bot.onText(/\/insights/, (msg) => {
   bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
 });
 
-bot.onText(/\/chart\s*(.*)/, (msg, match) => {
+bot.onText(/^\/chart(@\w+)?\s*(.*)/, (msg, match) => {
   const userId = msg.from.id;
   const chatId = msg.chat.id;
-  const chartType = (match[1] || '').trim().toLowerCase();
+  const chartType = (match[2] || '').trim().toLowerCase();
 
   if (chartType === 'bar') {
     const dailyStats = db.getMonthDailyStats(userId);
@@ -548,10 +548,10 @@ bot.onText(/\/chart\s*(.*)/, (msg, match) => {
   }
 });
 
-bot.onText(/\/split\s+(.+)/, (msg, match) => {
+bot.onText(/^\/split(@\w+)?\s+(.+)/, (msg, match) => {
   const userId = msg.from.id;
   const chatId = msg.chat.id;
-  const input = match[1].trim();
+  const input = match[2].trim();
 
   const partner = db.getPartnerInfo(userId);
   if (!partner) {
@@ -562,7 +562,7 @@ bot.onText(/\/split\s+(.+)/, (msg, match) => {
   processExpenseInput(input, userId, msg.from.first_name || 'User', chatId, null, true);
 });
 
-bot.onText(/\/splitstatus/, (msg) => {
+bot.onText(/^\/splitstatus(@\w+)?$/, (msg) => {
   const userId = msg.from.id;
   const nameMap = getNameMap(userId, msg.from.first_name);
   const splitData = db.getSplitSummary(userId);
@@ -570,20 +570,20 @@ bot.onText(/\/splitstatus/, (msg) => {
   bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
 });
 
-bot.onText(/\/tag\s+(.+)/, (msg, match) => {
+bot.onText(/^\/tag(@\w+)?\s+(.+)/, (msg, match) => {
   const userId = msg.from.id;
-  const tag = match[1].trim().replace(/^#/, '');
+  const tag = match[2].trim().replace(/^#/, '');
   const nameMap = getNameMap(userId, msg.from.first_name);
   const expenses = db.getExpensesByTag(userId, `#${tag}`);
   const text = fmt.formatExpenseList(expenses, `🏷️ <b>Expenses tagged #${tag}</b>`, nameMap);
   bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
 });
 
-bot.onText(/\/link\s*(.*)/, (msg, match) => {
+bot.onText(/^\/link(@\w+)?\s*(.*)/, (msg, match) => {
   const userId = msg.from.id;
   const chatId = msg.chat.id;
   const userName = msg.from.first_name || 'User';
-  const code = (match[1] || '').trim();
+  const code = (match[2] || '').trim();
 
   if (!code) {
     const result = db.createInviteCode(userId, userName);
@@ -613,7 +613,7 @@ bot.onText(/\/link\s*(.*)/, (msg, match) => {
   }
 });
 
-bot.onText(/\/unlink/, (msg) => {
+bot.onText(/^\/unlink(@\w+)?$/, (msg) => {
   const userId = msg.from.id;
   const result = db.unlinkPair(userId);
   if (result.error === 'not_linked') {
@@ -628,7 +628,7 @@ bot.onText(/\/unlink/, (msg) => {
     { parse_mode: 'HTML' }).catch(() => {});
 });
 
-bot.onText(/\/who/, (msg) => {
+bot.onText(/^\/who(@\w+)?$/, (msg) => {
   const userId = msg.from.id;
   const partner = db.getPartnerInfo(userId);
   if (!partner) {
@@ -643,7 +643,7 @@ bot.onText(/\/who/, (msg) => {
     { parse_mode: 'HTML' });
 });
 
-bot.onText(/\/add/, (msg) => {
+bot.onText(/^\/add(@\w+)?$/, (msg) => {
   const keyboard = [];
   const categories = fmt.CATEGORIES;
   for (let i = 0; i < categories.length; i += 3) {
@@ -673,39 +673,39 @@ bot.on('callback_query', (query) => {
   }
 });
 
-bot.onText(/\/today/, (msg) => {
+bot.onText(/^\/today(@\w+)?$/, (msg) => {
   const nameMap = getNameMap(msg.from.id, msg.from.first_name);
   const expenses = db.getTodayExpenses(msg.from.id);
   bot.sendMessage(msg.chat.id, fmt.formatExpenseList(expenses, '📅 <b>Today\'s expenses</b>', nameMap), { parse_mode: 'HTML' });
 });
 
-bot.onText(/\/week/, (msg) => {
+bot.onText(/^\/week(@\w+)?$/, (msg) => {
   const nameMap = getNameMap(msg.from.id, msg.from.first_name);
   const expenses = db.getWeekExpenses(msg.from.id);
   bot.sendMessage(msg.chat.id, fmt.formatExpenseList(expenses, '📆 <b>This week</b>', nameMap), { parse_mode: 'HTML' });
 });
 
-bot.onText(/\/month/, (msg) => {
+bot.onText(/^\/month(@\w+)?$/, (msg) => {
   const nameMap = getNameMap(msg.from.id, msg.from.first_name);
   const expenses = db.getMonthExpenses(msg.from.id);
   bot.sendMessage(msg.chat.id, fmt.formatExpenseList(expenses, '🗓️ <b>This month</b>', nameMap), { parse_mode: 'HTML' });
 });
 
-bot.onText(/\/stats/, (msg) => {
+bot.onText(/^\/stats(@\w+)?$/, (msg) => {
   const stats = db.getMonthCategoryStats(msg.from.id);
   const monthTotal = db.getMonthTotal(msg.from.id);
   bot.sendMessage(msg.chat.id, fmt.formatCategoryStats(stats, monthTotal), { parse_mode: 'HTML' });
 });
 
-bot.onText(/\/overview/, (msg) => {
+bot.onText(/^\/overview(@\w+)?$/, (msg) => {
   const months = db.getMonthlyOverview(msg.from.id);
   bot.sendMessage(msg.chat.id, fmt.formatMonthlyOverview(months), { parse_mode: 'HTML' });
 });
 
-bot.onText(/\/delete\s*(\d+)?/, (msg, match) => {
+bot.onText(/^\/delete(@\w+)?\s*(\d+)?$/, (msg, match) => {
   const userId = msg.from.id;
   const chatId = msg.chat.id;
-  const expenseId = match[1];
+  const expenseId = match[2];
   const nameMap = getNameMap(userId, msg.from.first_name);
 
   if (!expenseId) {
@@ -759,10 +759,10 @@ bot.on('photo', (msg) => {
     { parse_mode: 'HTML' });
 });
 
-bot.onText(/\/receipt\s+(\d+)/, (msg, match) => {
+bot.onText(/^\/receipt(@\w+)?\s+(\d+)$/, (msg, match) => {
   const userId = msg.from.id;
   const chatId = msg.chat.id;
-  const expenseId = parseInt(match[1]);
+  const expenseId = parseInt(match[2]);
 
   const expense = db.getExpenseById(expenseId);
   if (!expense || !expense.photo_id) {

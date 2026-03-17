@@ -84,6 +84,27 @@ function initTables() {
 
     CREATE INDEX IF NOT EXISTS idx_recurring_user ON recurring(user_id);
   `);
+
+  migrateDb();
+}
+
+function migrateDb() {
+  const columns = db.prepare("PRAGMA table_info(expenses)").all().map(c => c.name);
+
+  const migrations = [
+    { col: 'original_amount', sql: 'ALTER TABLE expenses ADD COLUMN original_amount REAL' },
+    { col: 'original_currency', sql: 'ALTER TABLE expenses ADD COLUMN original_currency TEXT' },
+    { col: 'tags', sql: "ALTER TABLE expenses ADD COLUMN tags TEXT DEFAULT ''" },
+    { col: 'photo_id', sql: 'ALTER TABLE expenses ADD COLUMN photo_id TEXT' },
+    { col: 'is_split', sql: 'ALTER TABLE expenses ADD COLUMN is_split INTEGER DEFAULT 0' },
+  ];
+
+  migrations.forEach(({ col, sql }) => {
+    if (!columns.includes(col)) {
+      db.exec(sql);
+      console.log(`Migration: added column '${col}' to expenses table.`);
+    }
+  });
 }
 
 function createInviteCode(userId, userName) {
