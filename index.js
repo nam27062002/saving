@@ -5,6 +5,7 @@ const path = require('path');
 const db = require('./src/database');
 const fmt = require('./src/formatter');
 const scheduler = require('./src/scheduler');
+const { startServer } = require('./src/server');
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -26,6 +27,7 @@ bot.on('error', (err) => {
 });
 
 scheduler.init(bot);
+startServer(bot);
 
 const userStates = new Map();
 

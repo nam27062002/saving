@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Expense Tracker Dashboard</title>
+  <meta name="description" content="Track and analyze your daily expenses with beautiful charts and insights">
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">
+        <div class="logo-icon">💰</div>
+        <div>
+          <h1>Expense Tracker</h1>
+          <p id="partnerStatus">Your personal finance dashboard</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="add-btn" id="addExpenseBtn" title="Add Expense">+ Add Expense</button>
+        <div class="period-selector" id="periodSelector">
+          <button class="period-btn" data-period="today">Today</button>
+          <button class="period-btn" data-period="week">Week</button>
+          <button class="period-btn active" data-period="month">Month</button>
+        </div>
+        <button class="refresh-btn" id="refreshBtn" title="Refresh">⟳</button>
+      </div>
+    </header>
+
+    <section class="quick-add-section" id="quickAddSection">
+      <h3>⚡ Quick Add</h3>
+      <div class="quick-add-grid">
+        <button class="quick-add-btn" data-amount="30000" data-desc="Coffee" data-cat="Food & Drinks">☕ Coffee 30k</button>
+        <button class="quick-add-btn" data-amount="50000" data-desc="Lunch" data-cat="Food & Drinks">🍜 Lunch 50k</button>
+        <button class="quick-add-btn" data-amount="25000" data-desc="Grab/Taxi" data-cat="Transport">🚗 Grab 25k</button>
+        <button class="quick-add-btn" data-amount="16000" data-desc="4G Data" data-cat="Bills">📱 4G 16k</button>
+        <button class="quick-add-btn" data-amount="100000" data-desc="Groceries" data-cat="Shopping">🛒 Groceries 100k</button>
+        <button class="quick-add-btn" data-amount="40000" data-desc="Dinner" data-cat="Food & Drinks">🍽️ Dinner 40k</button>
+        <button class="quick-add-btn" data-amount="15000" data-desc="Parking" data-cat="Transport">🅿️ Parking 15k</button>
+        <button class="quick-add-btn" data-amount="50000" data-desc="Gas/Fuel" data-cat="Transport">⛽ Gas 50k</button>
+      </div>
+    </section>
+
+    <section class="stats-grid" id="statsGrid">
+      <div class="stat-card fade-in">
+        <div class="stat-icon">📅</div>
+        <div class="stat-label">Today</div>
+        <div class="stat-value" id="statToday">--</div>
+        <div class="stat-change neutral" id="statTodayChange"></div>
+      </div>
+      <div class="stat-card fade-in" style="animation-delay: 0.05s">
+        <div class="stat-icon">📆</div>
+        <div class="stat-label">This Week</div>
+        <div class="stat-value" id="statWeek">--</div>
+        <div class="stat-change neutral" id="statWeekChange"></div>
+      </div>
+      <div class="stat-card fade-in" style="animation-delay: 0.1s">
+        <div class="stat-icon">🗓️</div>
+        <div class="stat-label">This Month</div>
+        <div class="stat-value" id="statMonth">--</div>
+        <div class="stat-change" id="statMonthChange"></div>
+      </div>
+      <div class="stat-card fade-in clickable" style="animation-delay: 0.15s" id="budgetCard" title="Click to set budget">
+        <div class="stat-icon">💰</div>
+        <div class="stat-label">Budget</div>
+        <div class="stat-value" id="statBudget">--</div>
+        <div class="stat-change" id="statBudgetChange"></div>
+        <div class="budget-bar" id="budgetBar" style="display:none">
+          <div class="budget-fill safe" id="budgetFill" style="width: 0%"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="charts-grid">
+      <div class="chart-card fade-in" style="animation-delay: 0.2s">
+        <h3><span>📊</span> Category Breakdown</h3>
+        <div class="chart-container">
+          <canvas id="categoryChart"></canvas>
+        </div>
+      </div>
+      <div class="chart-card fade-in" style="animation-delay: 0.25s">
+        <h3><span>📈</span> Daily Spending</h3>
+        <div class="chart-container">
+          <canvas id="dailyChart"></canvas>
+        </div>
+      </div>
+      <div class="chart-card full-width fade-in" style="animation-delay: 0.3s">
+        <h3><span>📉</span> Monthly Trend</h3>
+        <div class="chart-container">
+          <canvas id="monthlyChart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section class="table-card fade-in" style="animation-delay: 0.35s">
+      <div class="table-header">
+        <h3><span>📋</span> Recent Expenses</h3>
+        <div class="table-filters">
+          <select class="filter-select" id="categoryFilter">
+            <option value="all">All Categories</option>
+          </select>
+          <input type="text" class="search-input" id="searchInput" placeholder="Search expenses...">
+          <button class="export-btn" id="exportBtn" title="Download CSV">📥 Export</button>
+        </div>
+      </div>
+      <div id="tableContent">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </section>
+
+    <section class="table-card fade-in" style="animation-delay: 0.4s" id="recurringSection">
+      <div class="table-header">
+        <h3><span>🔄</span> Recurring Expenses</h3>
+        <button class="add-btn" id="addRecurringBtn" style="font-size: 13px; padding: 8px 14px;">+ Add Recurring</button>
+      </div>
+      <div id="recurringContent">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modalTitle">Add Expense</h3>
+        <button class="modal-close" id="modalClose">&times;</button>
+      </div>
+      <form id="expenseForm">
+        <div class="form-group">
+          <label for="formAmount">Amount (VND)</label>
+          <input type="number" id="formAmount" placeholder="e.g. 50000" required min="1">
+        </div>
+        <div class="form-group">
+          <label for="formDescription">Description</label>
+          <input type="text" id="formDescription" placeholder="e.g. Coffee with friends">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="formCategory">Category</label>
+            <select id="formCategory"></select>
+          </div>
+          <div class="form-group">
+            <label for="formDate">Date</label>
+            <input type="date" id="formDate">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="formTags">Tags (e.g. #work #trip)</label>
+          <input type="text" id="formTags" placeholder="#work #trip">
+        </div>
+        <input type="hidden" id="formExpenseId">
+        <div class="form-actions">
+          <button type="button" class="btn btn-cancel" id="modalCancelBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="formSubmitBtn">Add Expense</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="budgetModalOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>💰 Set Monthly Budget</h3>
+        <button class="modal-close" id="budgetModalClose">&times;</button>
+      </div>
+      <form id="budgetForm">
+        <div class="form-group" style="padding-top: 16px">
+          <label for="budgetAmount">Monthly Budget (VND)</label>
+          <input type="number" id="budgetAmount" placeholder="e.g. 5000000" required min="1">
+          <div style="margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap;">
+            <button type="button" class="budget-preset" data-amount="3000000">3M</button>
+            <button type="button" class="budget-preset" data-amount="5000000">5M</button>
+            <button type="button" class="budget-preset" data-amount="7000000">7M</button>
+            <button type="button" class="budget-preset" data-amount="10000000">10M</button>
+            <button type="button" class="budget-preset" data-amount="15000000">15M</button>
+            <button type="button" class="budget-preset" data-amount="20000000">20M</button>
+          </div>
+        </div>
+        <div id="budgetPreview" style="padding: 0 24px; margin-bottom: 8px;"></div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-cancel" id="budgetCancelBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Budget</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="recurringModalOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>🔄 Add Recurring Expense</h3>
+        <button class="modal-close" id="recurringModalClose">&times;</button>
+      </div>
+      <form id="recurringForm">
+        <div class="form-group" style="padding-top: 16px">
+          <label for="recurringAmount">Amount (VND)</label>
+          <input type="number" id="recurringAmount" placeholder="e.g. 3000000" required min="1">
+        </div>
+        <div class="form-group">
+          <label for="recurringDesc">Description</label>
+          <input type="text" id="recurringDesc" placeholder="e.g. Rent, Netflix, Gym" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="recurringCategory">Category</label>
+            <select id="recurringCategory"></select>
+          </div>
+          <div class="form-group">
+            <label for="recurringDay">Day of Month (1-28)</label>
+            <input type="number" id="recurringDay" min="1" max="28" placeholder="1" required>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-cancel" id="recurringCancelBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Add Recurring</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

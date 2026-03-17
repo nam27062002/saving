@@ -510,8 +510,25 @@ function closeDb() {
   }
 }
 
+function updateExpense(expenseId, fields) {
+  const stmt = getDb().prepare(`
+    UPDATE expenses SET amount = ?, description = ?, category = ?, tags = ?, date = ?
+    WHERE id = ?
+  `);
+  stmt.run(fields.amount, fields.description, fields.category, fields.tags || '', fields.date, expenseId);
+}
+
+function getFirstUserId() {
+  try {
+    const row = getDb().prepare('SELECT DISTINCT user_id FROM expenses ORDER BY created_at DESC LIMIT 1').get();
+    return row ? row.user_id : null;
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
-  addExpense, deleteExpense, setExpensePhoto, getExpenseById,
+  addExpense, deleteExpense, setExpensePhoto, getExpenseById, updateExpense,
   getTodayExpenses, getTodayTotal,
   getWeekExpenses, getWeekTotal,
   getMonthExpenses, getMonthTotal,
@@ -522,7 +539,7 @@ module.exports = {
   getSplitSummary,
   createInviteCode, linkWithCode, unlinkPair,
   getPartnerInfo, getPartnerName, getUserName, getGroupUserIds,
-  setBudget, getBudget,
+  setBudget, getBudget, getFirstUserId,
   setReminder, getReminder, getActiveReminders, disableReminder,
   addRecurring, getRecurringList, deleteRecurring, getDueRecurring, markRecurringRun,
   hasTodayExpenses,
