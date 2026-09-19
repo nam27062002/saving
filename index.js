@@ -225,24 +225,23 @@ function processExpenseInput(text, userId, userName, chatId, forcedCategory = nu
 
   const id = db.addExpense(userId, amount, description || 'No description', category, options);
   const todayTotal = db.getTodayTotal(userId);
+  const monthTotal = db.getMonthTotal(userId);
   const budgetWarning = checkBudgetWarning(userId);
   const partner = db.getPartnerInfo(userId);
-  const sharedNote = partner ? `\n👫 Shared wallet with ${partner.name}` : '';
-  const dateNote = customDate ? `\n📅 Date: ${customDate}` : '';
-  const splitNote = isSplit ? '\n🔀 Split expense' : '';
-  const currencyNote = currencyInfo ? `\n💱 ${currencyInfo.original} ${currencyInfo.currency} → ${fmt.formatMoney(amount)}` : '';
-  const tagNote = tags ? `\n🏷️ ${tags}` : '';
+
+  const extras = [];
+  if (customDate) extras.push(`📅 ${customDate}`);
+  if (currencyInfo) extras.push(`💱 ${currencyInfo.original} ${currencyInfo.currency}`);
+  if (isSplit) extras.push(`🔀 Split`);
+  if (tags) extras.push(`🏷️ ${tags}`);
+  const extrasLine = extras.length > 0 ? ` • ${extras.join(' • ')}` : '';
 
   const emoji = fmt.getCategoryEmoji(category);
   const confirmText =
-    `✅ Recorded!\n\n` +
-    `${emoji} <b>${description || 'No description'}</b>\n` +
-    `💸 ${fmt.formatMoney(amount)}\n` +
-    `📂 ${category}\n` +
-    `🆔 #${id}` +
-    dateNote + currencyNote + splitNote + tagNote +
-    `\n\n📊 Today's total: <b>${fmt.formatMoney(todayTotal)}</b>` +
-    sharedNote +
+    `${emoji} <b>${description || 'No description'}</b> • 💸 <b>${fmt.formatMoney(amount)}</b>\n` +
+    `📂 ${category}${extrasLine}\n\n` +
+    `📊 Hôm nay: <b>${fmt.formatMoney(todayTotal)}</b>\n` +
+    `🗓️ Tháng này: <b>${fmt.formatMoney(monthTotal)}</b>` +
     (budgetWarning || '');
 
   bot.sendMessage(chatId, confirmText, { parse_mode: 'HTML' });
@@ -250,12 +249,11 @@ function processExpenseInput(text, userId, userName, chatId, forcedCategory = nu
   if (partner) {
     bot.sendMessage(
       partner.id,
-      `📢 <b>${userName}</b> just spent:\n\n` +
-        `${emoji} <b>${description || 'No description'}</b>\n` +
-        `💸 ${fmt.formatMoney(amount)}` +
-        (isSplit ? ' 🔀 Split' : '') +
-        `\n📂 ${category}\n\n` +
-        `📊 Today's total (shared): <b>${fmt.formatMoney(todayTotal)}</b>`,
+      `📢 <b>${userName}</b> vừa chi:\n` +
+        `${emoji} <b>${description || 'No description'}</b> • 💸 <b>${fmt.formatMoney(amount)}</b>\n` +
+        `📂 ${category}${extrasLine}\n\n` +
+        `📊 Hôm nay: <b>${fmt.formatMoney(todayTotal)}</b>\n` +
+        `🗓️ Tháng này: <b>${fmt.formatMoney(monthTotal)}</b>`,
       { parse_mode: 'HTML' }
     ).catch(() => {});
   }
@@ -692,7 +690,10 @@ bot.on('callback_query', (query) => {
 bot.onText(/^\/today(@\w+)?$/, (msg) => {
   const nameMap = getNameMap(msg.from.id, msg.from.first_name);
   const expenses = db.getTodayExpenses(msg.from.id);
-  bot.sendMessage(msg.chat.id, fmt.formatExpenseList(expenses, '📅 <b>Today\'s expenses</b>', nameMap), { parse_mode: 'HTML' });
+  const monthTotal = db.getMonthTotal(msg.from.id);
+  const listText = fmt.formatExpenseList(expenses, '📅 <b>Today\'s expenses</b>', nameMap);
+  const fullText = `${listText}\n🗓️ <b>Tháng này: ${fmt.formatMoney(monthTotal)}</b>`;
+  bot.sendMessage(msg.chat.id, fullText, { parse_mode: 'HTML' });
 });
 
 bot.onText(/^\/week(@\w+)?$/, (msg) => {
@@ -764,15 +765,36 @@ bot.on('photo', (msg) => {
   const category = autoDetectCategory(cleanText);
   const id = db.addExpense(userId, amount, cleanText || 'No description', category, { tags, photoId });
   const todayTotal = db.getTodayTotal(userId);
+  const monthTotal = db.getMonthTotal(userId);
   const budgetWarning = checkBudgetWarning(userId);
+  const partner = db.getPartnerInfo(userId);
+  const userName = msg.from.first_name || 'Partner';
+  const emoji = fmt.getCategoryEmoji(category);
+  const tagNote = tags ? ` • 🏷️ ${tags}` : '';
 
   bot.sendMessage(chatId,
-    `✅ Recorded with receipt! 📸\n\n` +
-    `${fmt.getCategoryEmoji(category)} <b>${cleanText || 'No description'}</b>\n` +
-    `💸 ${fmt.formatMoney(amount)}\n📂 ${category}\n🆔 #${id}\n\n` +
-    `📊 Today's total: <b>${fmt.formatMoney(todayTotal)}</b>` +
+    `📸 ${emoji} <b>${cleanText || 'No description'}</b> • 💸 <b>${fmt.formatMoney(amount)}</b>\n` +
+    `📂 ${category}${tagNote}\n\n` +
+    `📊 Hôm nay: <b>${fmt.formatMoney(todayTotal)}</b>\n` +
+    `🗓️ Tháng này: <b>${fmt.formatMoney(monthTotal)}</b>` +
     (budgetWarning || ''),
     { parse_mode: 'HTML' });
+
+  if (partner) {
+    const partnerCaption =
+      `📢 <b>${userName}</b> (📸 Hóa đơn):\n` +
+      `${emoji} <b>${cleanText || 'No description'}</b> • 💸 <b>${fmt.formatMoney(amount)}</b>\n` +
+      `📂 ${category}${tagNote}\n\n` +
+      `📊 Hôm nay: <b>${fmt.formatMoney(todayTotal)}</b>\n` +
+      `🗓️ Tháng này: <b>${fmt.formatMoney(monthTotal)}</b>`;
+
+    bot.sendPhoto(partner.id, photoId, {
+      caption: partnerCaption,
+      parse_mode: 'HTML',
+    }).catch(() => {
+      bot.sendMessage(partner.id, partnerCaption, { parse_mode: 'HTML' }).catch(() => {});
+    });
+  }
 });
 
 bot.onText(/^\/receipt(@\w+)?\s+(\d+)$/, (msg, match) => {

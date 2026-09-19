@@ -527,13 +527,134 @@ function getFirstUserId() {
   }
 }
 
+function getAllTimeTotal(userId) {
+  const userIds = getGroupUserIds(userId);
+  const stmt = getDb().prepare(`
+    SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count
+    FROM expenses
+    WHERE user_id IN (${inPlaceholders(userIds)})
+  `);
+  return stmt.get(...userIds);
+}
+
+function getYearTotal(userId, year = null) {
+  const userIds = getGroupUserIds(userId);
+  const targetYear = year || new Date().getFullYear().toString();
+  const stmt = getDb().prepare(`
+    SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count
+    FROM expenses
+    WHERE user_id IN (${inPlaceholders(userIds)})
+      AND strftime('%Y', date) = ?
+  `);
+  return stmt.get(...userIds, targetYear);
+}
+
+function getAllMonthlyOverview(userId) {
+  const userIds = getGroupUserIds(userId);
+  const stmt = getDb().prepare(`
+    SELECT strftime('%Y-%m', date) as month, SUM(amount) as total, COUNT(*) as count
+    FROM expenses
+    WHERE user_id IN (${inPlaceholders(userIds)})
+    GROUP BY month
+    ORDER BY month ASC
+  `);
+  return stmt.all(...userIds);
+}
+
+function getSharedWalletBalance(userId) {
+  const userIds = getGroupUserIds(userId);
+  if (userIds.length < 2) return null;
+
+  const stmt = getDb().prepare(`
+    SELECT user_id, SUM(amount) as total, COUNT(*) as count
+    FROM expenses
+    WHERE user_id IN (${inPlaceholders(userIds)})
+    GROUP BY user_id
+  `);
+  return stmt.all(...userIds);
+}
+
+function getFilteredExpenses(userId, options = {}) {
+  const groupUserIds = getGroupUserIds(userId);
+  let targetUserIds = groupUserIds;
+
+  if (options.userFilter && options.userFilter !== 'all') {
+    const filterId = parseInt(options.userFilter);
+    if (groupUserIds.includes(filterId)) {
+      targetUserIds = [filterId];
+    }
+  }
+
+  let whereClauses = [`user_id IN (${inPlaceholders(targetUserIds)})`];
+  let params = [...targetUserIds];
+
+  if (options.period === 'today') {
+    whereClauses.push("date = date('now', 'localtime')");
+  } else if (options.period === 'week') {
+    whereClauses.push("date >= date('now', 'localtime', 'weekday 1', '-7 days') AND date <= date('now', 'localtime')");
+  } else if (options.period === 'month') {
+    whereClauses.push("strftime('%Y-%m', date) = strftime('%Y-%m', date('now', 'localtime'))");
+  } else if (options.period === 'year') {
+    whereClauses.push("strftime('%Y', date) = strftime('%Y', date('now', 'localtime'))");
+  } else if (options.period === 'custom' && (options.startDate || options.endDate)) {
+    if (options.startDate) {
+      whereClauses.push("date >= ?");
+      params.push(options.startDate);
+    }
+    if (options.endDate) {
+      whereClauses.push("date <= ?");
+      params.push(options.endDate);
+    }
+  }
+
+  if (options.category && options.category !== 'all') {
+    whereClauses.push("category = ?");
+    params.push(options.category);
+  }
+
+  if (options.search && options.search.trim()) {
+    const term = `%${options.search.trim()}%`;
+    whereClauses.push("(description LIKE ? OR tags LIKE ?)");
+    params.push(term, term);
+  }
+
+  const whereSQL = whereClauses.join(' AND ');
+
+  const summaryStmt = getDb().prepare(`
+    SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total
+    FROM expenses
+    WHERE ${whereSQL}
+  `);
+  const summary = summaryStmt.get(...params);
+
+  let limitClause = '';
+  if (options.limit) {
+    limitClause = `LIMIT ${parseInt(options.limit)}`;
+    if (options.offset) {
+      limitClause += ` OFFSET ${parseInt(options.offset)}`;
+    }
+  }
+
+  const listStmt = getDb().prepare(`
+    SELECT id, user_id, amount, original_amount, original_currency, description, category, tags, photo_id, is_split, date, created_at
+    FROM expenses
+    WHERE ${whereSQL}
+    ORDER BY date DESC, created_at DESC
+    ${limitClause}
+  `);
+  const items = listStmt.all(...params);
+
+  return { items, total: summary.total, count: summary.count };
+}
+
 module.exports = {
   addExpense, deleteExpense, setExpensePhoto, getExpenseById, updateExpense,
   getTodayExpenses, getTodayTotal,
   getWeekExpenses, getWeekTotal,
   getMonthExpenses, getMonthTotal,
   getMonthCategoryStats, getMonthDailyStats,
-  getRecentExpenses, getMonthlyOverview,
+  getRecentExpenses, getMonthlyOverview, getAllMonthlyOverview,
+  getAllTimeTotal, getYearTotal, getSharedWalletBalance, getFilteredExpenses,
   getExpensesByTag, getExpensesByMonth,
   getPreviousMonthTotal, getPreviousMonthCategoryStats,
   getSplitSummary,
