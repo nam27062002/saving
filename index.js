@@ -14,17 +14,53 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-const bot = new TelegramBot(TOKEN, { polling: true });
+const bot = new TelegramBot(TOKEN, {
+  polling: {
+    autoStart: true,
+    params: {
+      timeout: 10,
+    },
+  },
+});
 console.log('Bot started successfully!');
+
+let isRecoveringPolling = false;
+function autoRecoverPolling(reason) {
+  if (isRecoveringPolling) return;
+  if (!bot.isPolling()) {
+    isRecoveringPolling = true;
+    console.log(`[Watchdog] Polling stopped (${reason}). Attempting auto-restart in 3s...`);
+    setTimeout(async () => {
+      try {
+        await bot.stopPolling();
+      } catch {}
+      try {
+        await bot.startPolling();
+        console.log('[Watchdog] Polling successfully resumed!');
+      } catch (e) {
+        console.error('[Watchdog] Failed to resume polling:', e.message);
+      } finally {
+        isRecoveringPolling = false;
+      }
+    }, 3000);
+  }
+}
 
 bot.on('polling_error', (err) => {
   console.error('Polling error:', err.message || err.code || err);
-  if (err.stack) console.error(err.stack);
+  autoRecoverPolling(err.code || 'polling_error');
 });
 
 bot.on('error', (err) => {
   console.error('Bot error:', err.message || err);
+  autoRecoverPolling('bot_error');
 });
+
+setInterval(() => {
+  if (!bot.isPolling()) {
+    autoRecoverPolling('watchdog_interval_check');
+  }
+}, 30000);
 
 scheduler.init(bot);
 startServer(bot);
